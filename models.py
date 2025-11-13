@@ -133,42 +133,86 @@ def forecast_arima_model(
 
 
 # ---------------------------------------------------------------------
-# 3. VAR (for your VAR-X idea, using EUI + predictors)
+# 3. VAR (multivariate model for EUI + predictors)
 # ---------------------------------------------------------------------
 
-def fit_var_system(
+def fit_var_model(
     df: pd.DataFrame,
     endog_cols: Sequence[str],
-    lags: int = 1,
+    maxlags: int = 6,
+    ic: Optional[str] = "aic",
     date_col: str = "date",
+    trend: str = "c",
 ) -> Any:
     """
-    Fit a VAR(p) on the selected endogenous variables.
+    Fit a VAR model on stationary series.
 
-    In your application, you can set:
-        endog_cols = ["eui", "gpr", "cpu", "oil_price"]
+    Parameters
+    ----------
+    df : DataFrame
+        Full dataframe (with date column or DatetimeIndex).
+    endog_cols : list of str
+        Names of the endogenous variables (must be stationary).
+        Example: ["dlog_eui", "dlog_gpr", "dlog_cpu", "dlog_oil_price"]
+    maxlags : int
+        Maximum lag order to search over.
+    ic : {"aic", "bic", None}
+        If not None, select lag length using this information criterion.
+        If None, the lag length is fixed at `maxlags`.
+    trend : {"c", "nc", "ct", "ctt"}
+        Trend specification (constant, none, linear, etc.)
 
-    The data are assumed *stationary* (or made so via differencing/logs).
+    Returns
+    -------
+    res : VARResults
     """
+    # ensure datetime index and sorted
     df = _ensure_dt_index(df, date_col=date_col)
+
+    # keep only the chosen endogenous vars and drop missing values
     endog = df[list(endog_cols)].dropna()
 
     model = VAR(endog)
-    res = model.fit(maxlags=lags, ic=None, trend="c")  # you can change ic="aic" to select lags by AIC
+
+    if ic is not None:
+        # Let statsmodels choose the lag order up to maxlags
+        res = model.fit(maxlags=maxlags, ic=ic, trend=trend)
+    else:
+        # Fix lag length
+        res = model.fit(maxlags, trend=trend)
+
     return res
 
 
-def forecast_var_system(
+def forecast_var_model(
     res: Any,
     steps: int,
     index: Optional[pd.DatetimeIndex] = None,
 ) -> pd.DataFrame:
     """
     Multi-step forecast from a fitted VAR model.
-    Returns a DataFrame with one column per variable.
+
+    Parameters
+    ----------
+    res : VARResults
+        Fitted VAR model returned by fit_var_model.
+    steps : int
+        Forecast horizon.
+    index : DatetimeIndex, optional
+        Index for the forecasted values (e.g. test_df.index).
+
+    Returns
+    -------
+    fcast_df : DataFrame
+        DataFrame of forecasts, columns = variable names in VAR.
     """
-    # last k observations used as starting values
-    y0 = res.y  # underlying np.array of endogenous vars
+    # Number of lags used in the fitted VAR
+    k_ar = res.k_ar
+
+    # last k_ar observations as starting values
+    y0 = res.model.endog[-k_ar:]  # shape (k_ar, n_vars)
+
+    # forecast returns numpy array (steps x n_vars)
     fcast = res.forecast(y=y0, steps=steps)
 
     cols = res.names
@@ -178,6 +222,7 @@ def forecast_var_system(
         fcast_df.index = index
 
     return fcast_df
+
 
 
 # ---------------------------------------------------------------------
