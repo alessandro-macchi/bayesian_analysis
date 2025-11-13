@@ -27,14 +27,12 @@ def main():
     diff_cols=["eui", "cpu", "oil_price"],         # makes d_<col> and dlog_<col>
     add_event_flags=True,
     train_ratio=0.8,
+    save=False,
+    save_path=None,
     visualize_flags={
-        "variables": (
-            # levels (optional)
-            # "eui", "cpu", "oil_price",
-            # first differences of levels
-            "d_eui", "d_cpu", "d_oil_price",
-            # first differences of logs (growth rates / returns)
-            "dlog_eui", "dlog_cpu", "dlog_oil_price",
+        "variables": ("eui", "gpr", "cpu", "oil_price", "log_eui", "log_gpr", "log_cpu",
+                      "log_oil_price", "d_eui", "d_cpu", "d_oil_price", "dlog_eui",
+                      "dlog_cpu", "dlog_oil_price",
         ),
         "lags": 36,
         "time_series": True,
