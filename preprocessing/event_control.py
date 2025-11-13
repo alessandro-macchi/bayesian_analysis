@@ -54,6 +54,7 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.D
       - Fukushima Disaster:  PULSE  (2011-03-01)
       - Global Financial Crisis: WINDOW (2007-12-01 to 2009-07-01)
       - Paris Climate Conference (COP21 adoption): PULSE (2015-12-01)
+      - September 11th Terrorist Attack: PULSE (2001-09-11)
     """
     out = _ensure_dt_index(df, date_col)
 
@@ -81,5 +82,8 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.D
 
     # Paris Climate Conference (COP21 agreement adoption)
     _add_pulse(out, "2015-12-01", "PARIS_COP21_PULSE_2015_12_12")
+
+    # September 11th Terrorist Attack (2001-09-11)
+    _add_pulse(out, "2001-09-01", "SEP11_PULSE_2001_09_11")
 
     return out
