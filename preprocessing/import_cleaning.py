@@ -103,3 +103,21 @@ def apply_log_transform(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
         out[f"log_{col}"] = np.log(out[col])
 
     return out
+
+
+def add_first_differences(df: pd.DataFrame, cols: List[str], *, dropna: bool = False) -> pd.DataFrame:
+    """
+    For each col in `cols`, add:
+      - d_<col>     = first difference of the level
+      - dlog_<col>  = first difference of the log (if log_<col> is present)
+    """
+    out = df.copy()
+    for col in cols:
+        if col in out.columns:
+            out[f"d_{col}"] = out[col].diff()
+        else:
+            print(f"[Warning] Column '{col}' not found; skipping d_{col}.")
+        log_col = f"log_{col}"
+        if log_col in out.columns:
+            out[f"dlog_{col}"] = out[log_col].diff()
+    return out if not dropna else out.dropna()

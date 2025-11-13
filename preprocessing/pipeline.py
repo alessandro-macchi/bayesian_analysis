@@ -2,9 +2,10 @@ from __future__ import annotations
 from typing import List, Optional, Tuple, Dict, Any
 import os
 
-from .import_cleaning import import_data, clean_data, apply_log_transform
+
 from .event_control import add_event_controls
 from .splitting import train_test_split_time
+from .import_cleaning import import_data, clean_data, apply_log_transform, add_first_differences
 from .visualization import (
     plot_time_series,
     plot_acf_for_each,
@@ -21,6 +22,7 @@ def preprocess_all(
     select_cols: Optional[List[str]] = None,
     rename_map: Optional[Dict[str, str]] = None,
     log_cols: Optional[List[str]] = None,
+    diff_cols = None,
     add_event_flags: bool = True,
     train_ratio: float = 0.8,
     save: bool = False,
@@ -56,10 +58,17 @@ def preprocess_all(
     )
     artifacts["clean_df"] = df
 
-    # 3) Log transforms
+    # 3) Log transforms and first differencing
     if log_cols:
         df = apply_log_transform(df, cols=log_cols)
+    
+    
+    if diff_cols:
+        df = add_first_differences(df, cols=diff_cols, dropna=False)
+
     artifacts["transformed_df"] = df
+
+
 
     # 4) Event controls
     if add_event_flags:
