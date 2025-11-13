@@ -27,6 +27,8 @@ def main():
     diff_cols=["eui", "cpu", "oil_price"],         # makes d_<col> and dlog_<col>
     add_event_flags=True,
     train_ratio=0.8,
+    save=False,
+    save_path=None,
     visualize_flags={
         "variables": (
             # levels (optional)
