@@ -1,4 +1,3 @@
-# models.py
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple, Dict, Any
@@ -92,22 +91,43 @@ def forecast_rw_with_drift(
 # 2. ARIMA (possibly SARIMA if you pass seasonal_order)
 # ---------------------------------------------------------------------
 
+# ---------------------------------------------------------------------
+# ARIMA order selection using AIC/BIC
+# ---------------------------------------------------------------------
+
+# ---------------------------------------------------------------------
+# 2. ARIMA (fit a single model with chosen (p,d,q))
+# ---------------------------------------------------------------------
+
 def fit_arima_model(
     y: pd.Series,
     order: Tuple[int, int, int] = (1, 1, 1),
     seasonal_order: Tuple[int, int, int, int] = (0, 0, 0, 0),
-    enforce_stationarity: bool = True,
-    enforce_invertibility: bool = True,
+    enforce_stationarity: bool = False,
+    enforce_invertibility: bool = False,
 ) -> Any:
     """
-    Fit an ARIMA / SARIMA model to series y_t.
+    Fit an ARIMA / SARIMA model to series y_t with a *given* (p,d,q).
 
-    You choose (p, d, q) and seasonal (P, D, Q, m) based on ACF/PACF
-    and your course slides.
+    Parameters
+    ----------
+    y : Series
+        Target series.
+    order : (p,d,q)
+        Non-seasonal ARIMA order.
+    seasonal_order : (P,D,Q,m)
+        Seasonal part. Use (0,0,0,0) when there is no seasonality.
+    enforce_stationarity, enforce_invertibility : bool
+        As in statsmodels.ARIMA.
+
+    Returns
+    -------
+    res : ARIMAResults
+        Fitted model.
     """
-    y = y.dropna()
+    y_clean = y.dropna()
     model = ARIMA(
-        y,
+        y_clean,
         order=order,
         seasonal_order=seasonal_order,
         enforce_stationarity=enforce_stationarity,
@@ -123,7 +143,21 @@ def forecast_arima_model(
     index: Optional[pd.DatetimeIndex] = None,
 ) -> pd.Series:
     """
-    Multi-step forecast from a fitted ARIMA object.
+    Multi-step forecast from a fitted ARIMA model.
+
+    Parameters
+    ----------
+    res : ARIMAResults
+        Fitted model from fit_arima_model.
+    steps : int
+        Forecast horizon.
+    index : DatetimeIndex, optional
+        Index to assign to the forecast series (e.g. test_df.index).
+
+    Returns
+    -------
+    fcast : Series
+        Forecasted values.
     """
     fcast_res = res.get_forecast(steps=steps)
     mean = fcast_res.predicted_mean
@@ -222,6 +256,58 @@ def forecast_var_model(
         fcast_df.index = index
 
     return fcast_df
+
+def select_var_lag(
+    df: pd.DataFrame,
+    endog_cols: Sequence[str],
+    maxlags: int = 12,
+    ic: str = "bic",
+    date_col: str = "date",
+) -> Tuple[int, Any]:
+    """
+    Select VAR lag length using information criteria (AIC/BIC/HQ/FPE).
+
+    Parameters
+    ----------
+    df : DataFrame
+        Full dataset (with DatetimeIndex or date_col).
+    endog_cols : list of str
+        Names of endogenous variables (assumed stationary).
+    maxlags : int
+        Maximum lag order to consider.
+    ic : {"aic", "bic", "hq", "fpe"}
+        Criterion used to choose the lag.
+    date_col : str
+        Date column name if index is not DatetimeIndex.
+
+    Returns
+    -------
+    best_lag : int
+        Selected lag order according to the chosen IC.
+    order_selection : VAROrderSelectionResults
+        Full statsmodels object with criteria values.
+    """
+    df = df.copy()
+
+    # ensure datetime index
+    if not isinstance(df.index, pd.DatetimeIndex):
+        if date_col not in df.columns:
+            raise ValueError(f"date_col '{date_col}' not found in df")
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+        df = df.dropna(subset=[date_col]).set_index(date_col)
+    df = df.sort_index()
+
+    endog = df[list(endog_cols)].dropna()
+
+    model = VAR(endog)
+    order_selection = model.select_order(maxlags=maxlags)
+
+    if ic not in {"aic", "bic", "hq", "fpe"}:
+        raise ValueError("ic must be one of 'aic','bic','hq','fpe'")
+
+    best_lag = int(getattr(order_selection, ic))
+
+    return best_lag, order_selection
 
 
 
@@ -337,3 +423,95 @@ def align_lagged_with_train_test(
     y_test = y_all.loc[test_idx]
 
     return X_train, y_train, X_test, y_test
+
+# ---------------------------------------------------------------------
+# 4b. Random Forest time-series CV (rolling-origin)
+# ---------------------------------------------------------------------
+
+def rf_time_series_cv(
+    X: pd.DataFrame,
+    y: pd.Series,
+    param_grid: Sequence[Dict[str, Any]],
+    initial_train_size: int,
+    h: int = 1,
+    step: int = 1,
+    random_state: int = 42,
+) -> Tuple[Dict[str, Any], pd.DataFrame]:
+    """
+    Rolling-origin cross-validation for Random Forest in time series.
+
+    Parameters
+    ----------
+    X, y : aligned DataFrame/Series (same index, no shuffling)
+    param_grid : list of dict
+        Each dict is a set of RF hyperparameters.
+    initial_train_size : int
+        Number of initial observations for the first training set.
+    h : int
+        Forecast horizon (typically h=1 for 1-step ahead).
+    step : int
+        Step between forecast origins.
+    random_state : int
+        Base random_state for reproducibility.
+
+    Returns
+    -------
+    best_params : dict
+        Parameter set with lowest MSFE.
+    results_df : DataFrame
+        One row per parameter set, columns [params, msfe].
+    """
+    X = X.copy()
+    y = y.copy()
+
+    if len(X) != len(y):
+        raise ValueError("X and y must have the same length")
+
+    n = len(y)
+    if initial_train_size + h >= n:
+        raise ValueError("initial_train_size + h must be < len(y)")
+
+    records: List[Dict[str, Any]] = []
+
+    for params in param_grid:
+        sq_errors = []
+
+        # rolling-origin evaluation
+        for t in range(initial_train_size, n - h, step):
+            train_start = 0
+            train_end = t          # up to t-1
+            test_start = t
+            test_end = t + h       # up to t+h-1
+
+            X_train_cv = X.iloc[train_start:train_end]
+            y_train_cv = y.iloc[train_start:train_end]
+            X_test_cv = X.iloc[test_start:test_end]
+            y_test_cv = y.iloc[test_start:test_end]
+
+            rf = RandomForestRegressor(
+                random_state=random_state,
+                n_jobs=-1,
+                **params,
+            )
+            rf.fit(X_train_cv, y_train_cv)
+            y_pred_cv = rf.predict(X_test_cv)
+
+            errors = (y_test_cv.values - y_pred_cv) ** 2
+            sq_errors.extend(errors.tolist())
+
+        msfe = float(np.mean(sq_errors)) if sq_errors else np.inf
+
+        records.append({
+            "params": params,
+            "msfe": msfe,
+        })
+
+    results_df = pd.DataFrame.from_records(records).sort_values("msfe").reset_index(drop=True)
+
+    if results_df.empty:
+        raise RuntimeError("No CV results; check your settings.")
+
+    best_params = results_df.loc[0, "params"]
+
+    return best_params, results_df
+
