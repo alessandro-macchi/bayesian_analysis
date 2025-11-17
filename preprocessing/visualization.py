@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from typing import List, Optional, Sequence, Union, Dict
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-
+from statsmodels.tsa.stattools import ccf
 DateLike = Union[str, pd.Timestamp]
 
 # -----------------------------
@@ -217,5 +217,69 @@ def visualize_all(
         fig, ax = plt.subplots(figsize=(8, 4))
         plot_pacf(s, ax=ax, lags=lags, method="ywm", title=f"{name} - PACF")
         _recolor_acf_pacf(ax, color)
+        plt.tight_layout()
+        plt.show()
+
+
+def plot_corr_matrix(
+    df: pd.DataFrame,
+    variables: Sequence[str],
+    date_col: Optional[str] = "date",
+    *,
+    figsize: tuple = (6, 5)
+) -> None:
+    """
+    Plot a simple Pearson correlation matrix for the given variables.
+    Assumes variables are already stationary (e.g. dlog_...).
+    """
+    out = _ensure_dt_index(df, date_col)
+    # prendo solo le colonne richieste, convertite a numerico
+    data = {v: pd.to_numeric(out[v], errors="coerce") for v in variables if v in out.columns}
+    corr_df = pd.DataFrame(data).dropna().corr()
+
+    plt.figure(figsize=figsize)
+    im = plt.imshow(corr_df, cmap="coolwarm", vmin=-1, vmax=1)
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+    plt.xticks(range(len(corr_df.columns)), corr_df.columns, rotation=45, ha="right")
+    plt.yticks(range(len(corr_df.index)), corr_df.index)
+    plt.title("Correlation matrix")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_ccf_with_target(
+    df: pd.DataFrame,
+    target: str,
+    predictors: Sequence[str],
+    date_col: Optional[str] = "date",
+    *,
+    max_lag: int = 12
+) -> None:
+    """
+    Plot cross-correlation functions between a target series
+    and each predictor (both should be stationary, e.g. dlog_...).
+    Positive lag k means predictor_t-k is correlated with target_t.
+    """
+    out = _ensure_dt_index(df, date_col)
+    y = pd.to_numeric(out[target], errors="coerce").dropna()
+
+    for xname in predictors:
+        if xname not in out.columns:
+            print(f"[Warning] '{xname}' not in DataFrame; skipping.")
+            continue
+        x = pd.to_numeric(out[xname], errors="coerce").dropna()
+        # allinea gli indici
+        aligned = pd.concat([y, x], axis=1).dropna()
+        y_al, x_al = aligned.iloc[:, 0], aligned.iloc[:, 1]
+
+        c = ccf(y_al, x_al)[: max_lag + 1]
+        lags = range(0, max_lag + 1)
+
+        plt.figure(figsize=(7, 3))
+        plt.stem(lags, c)
+        plt.axhline(0, color="black", linewidth=1)
+        plt.title(f"CCF: {target} vs {xname}")
+        plt.xlabel("Lag (k)  —  x at t-k vs y at t")
+        plt.ylabel("Cross-correlation")
         plt.tight_layout()
         plt.show()
