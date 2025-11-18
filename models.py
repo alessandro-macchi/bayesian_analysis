@@ -7,6 +7,7 @@ import pandas as pd
 
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.api import VAR
+from statsmodels.tsa.statespace.varmax import VARMAX
 from sklearn.ensemble import RandomForestRegressor
 
 
@@ -86,6 +87,63 @@ def forecast_rw_with_drift(
 
     return pd.Series(fcast_values, index=idx, name=name)
 
+def expanding_window_forecast_rw_with_drift(
+    y_train: pd.Series,
+    y_test: pd.Series,
+) -> pd.Series:
+    """
+    1-step-ahead expanding-window forecasts for a Random Walk with Drift.
+
+    At each test time t:
+      - use all observations up to t-1 (train + past test) to estimate mu
+      - mu_hat = mean of first differences on that window
+      - forecast y_t = y_{t-1} + mu_hat
+
+    Returns a Series indexed by y_test.index.
+    """
+    # Clean and build full series (train + test)
+    y_train = y_train.dropna()
+    y_test = y_test.dropna()
+
+    y_full = pd.concat([y_train, y_test]).sort_index()
+    full_index = y_full.index
+
+    # Find integer position where the test part begins
+    train_end_idx = y_train.index[-1]
+    start_test_pos = full_index.get_loc(train_end_idx) + 1
+    n_full = len(full_index)
+
+    forecasts = []
+    forecast_index = []
+
+    for t in range(start_test_pos, n_full):
+        # Expanding window up to t-1
+        y_window = y_full.iloc[:t]
+
+        # Estimate drift on this window
+        dy = y_window.diff().dropna()
+        mu_hat = dy.mean()
+
+        # Last observed value in this window
+        last_value = y_window.iloc[-1]
+
+        # 1-step-ahead forecast for y at time full_index[t]
+        fcast_t = last_value + mu_hat
+
+        forecasts.append(fcast_t)
+        forecast_index.append(full_index[t])
+
+    fcast_series = pd.Series(
+        forecasts,
+        index=pd.Index(forecast_index, name=y_full.index.name),
+        name="rw_drift_expanding",
+    )
+
+    # Align to the actual test index
+    fcast_series = fcast_series.reindex(y_test.index)
+
+    return fcast_series
+
 
 # ---------------------------------------------------------------------
 # 2. ARIMA (possibly SARIMA if you pass seasonal_order)
@@ -164,6 +222,71 @@ def forecast_arima_model(
     if index is not None:
         mean.index = index
     return mean
+
+def expanding_window_forecast_arima(
+    y_train: pd.Series,
+    y_test: pd.Series,
+    order: Tuple[int, int, int],
+    seasonal_order: Tuple[int, int, int, int] = (0, 0, 0, 0),
+    enforce_stationarity: bool = False,
+    enforce_invertibility: bool = False,
+) -> pd.Series:
+    """
+    Expanding-window 1-step-ahead forecast for ARIMA.
+
+    Given a fixed (p,d,q) and a train/test split, this function:
+      - at each test time t, fits ARIMA(order) on all data up to t-1
+      - produces a 1-step-ahead forecast for y_t
+      - returns the full series of forecasts aligned with y_test.index
+
+    This is the standard "expanding window" time-series cross-validation scheme.
+    """
+    # Concatenate to make indexing easier (but we only fit using past data)
+    y_full = pd.concat([y_train, y_test])
+    y_full = y_full.sort_index()
+
+    # Indices / positions
+    train_end_idx = y_train.index[-1]
+    full_index = y_full.index
+
+    # Find the integer position where the test part begins
+    start_test_pos = full_index.get_loc(train_end_idx) + 1
+    n_full = len(full_index)
+
+    forecasts = []
+
+    for t in range(start_test_pos, n_full):
+        # Use all data up to t-1 as the "training window"
+        y_window = y_full.iloc[:t]
+
+        # Fit ARIMA on the current expanding window
+        res = fit_arima_model(
+            y=y_window,
+            order=order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=enforce_stationarity,
+            enforce_invertibility=enforce_invertibility,
+        )
+
+        # Forecast 1-step ahead: target is y_full.index[t]
+        fcast_t = forecast_arima_model(
+            res=res,
+            steps=1,
+            index=pd.DatetimeIndex([full_index[t]]),
+        )
+
+        forecasts.append(fcast_t)
+
+    # Concatenate all 1-step forecasts
+    fcast_series = pd.concat(forecasts).sort_index()
+
+    # Restrict to the true test period index, just in case
+    fcast_series = fcast_series.reindex(y_test.index)
+
+    fcast_series.name = f"arima_expanding_window_forecast_{order}"
+
+    return fcast_series
+
 
 
 # ---------------------------------------------------------------------
@@ -308,6 +431,97 @@ def select_var_lag(
     best_lag = int(getattr(order_selection, ic))
 
     return best_lag, order_selection
+
+# ---------------------------------------------------------------------
+# 3b. VARX via VARMAX (endogenous block + exogenous deterministic regressors)
+# ---------------------------------------------------------------------
+
+def fit_varx_model(
+    df: pd.DataFrame,
+    endog_cols: Sequence[str],
+    exog_cols: Optional[Sequence[str]] = None,
+    order: Tuple[int, int] = (1, 0),
+    date_col: str = "date",
+    trend: str = "c",
+) -> Any:
+    """
+    Fit a VARX model using statsmodels VARMAX:
+        y_t = c + A_1 y_{t-1} + ... + A_p y_{t-p} + B x_t + u_t
+
+    Parameters
+    ----------
+    df : DataFrame
+        Full dataset (with date column or DatetimeIndex).
+    endog_cols : list of str
+        Endogenous (stochastic) variables, e.g. ["dlog_eui", "dlog_cpu", ...].
+    exog_cols : list of str, optional
+        Deterministic / exogenous regressors (dummies, etc.).
+    order : (p, q)
+        VARMAX order; here we typically use (p, 0) for VARX(p).
+    date_col : str
+        Date column name if index is not DatetimeIndex.
+    trend : {"c", "nc", "t", "ct"}
+        Trend specification (constant, none, linear, linear+constant).
+
+    Returns
+    -------
+    res : VARMAXResults
+        Fitted VARX model.
+    """
+    df_ts = _ensure_dt_index(df, date_col=date_col).copy()
+
+    endog = df_ts[list(endog_cols)].dropna()
+
+    exog = None
+    if exog_cols is not None:
+        exog = df_ts.loc[endog.index, list(exog_cols)]
+
+    model = VARMAX(
+        endog=endog,
+        exog=exog,
+        order=order,
+        trend=trend,
+        enforce_stationarity=True,
+        enforce_invertibility=True,
+    )
+    # disp=False avoids noisy optimizer output
+    res = model.fit(disp=False)
+    return res
+
+
+def forecast_varx_model(
+    res: Any,
+    steps: int,
+    index: Optional[pd.DatetimeIndex] = None,
+    exog_future: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Multi-step forecast from a fitted VARX (VARMAX) model.
+
+    Parameters
+    ----------
+    res : VARMAXResults
+        Fitted model from fit_varx_model.
+    steps : int
+        Forecast horizon.
+    index : DatetimeIndex, optional
+        Index for forecasted values (e.g. test_df.index).
+    exog_future : DataFrame, optional
+        Future values of exogenous/deterministic regressors with
+        shape (steps, n_exog). Columns must match the exog used in fitting.
+
+    Returns
+    -------
+    fcast_df : DataFrame
+        Forecasts for all endogenous variables.
+    """
+    fcast_res = res.get_forecast(steps=steps, exog=exog_future)
+    mean = fcast_res.predicted_mean
+
+    if index is not None:
+        mean.index = index
+
+    return mean
 
 
 
