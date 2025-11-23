@@ -49,7 +49,7 @@ def _add_window(out: pd.DataFrame, start: DateLike, end: DateLike, colname: str)
 def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.DataFrame:
     """
     Add event controls with the following mapping:
-      - COVID-19:           WINDOW (2020-03-01 to 2023-05-01)
+      - COVID-19:           WINDOW (2020-02-01 to 2023-05-01)
       - Russia-Ukraine War: PULSE  (2022-03-01)
       - Fukushima Disaster:  PULSE  (2011-03-01)
       - Global Financial Crisis: WINDOW (2007-12-01 to 2009-07-01)
@@ -58,10 +58,10 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.D
     """
     out = _ensure_dt_index(df, date_col)
 
-    # COVID-19 window (WHO PHEIC 2020-03-01 to 2023-05-01)
+    # COVID-19 window (WHO PHEIC 2020-02-01 to 2023-05-01)
     _add_window(
         out,
-        start="2020-03-01",
+        start="2020-02-01",
         end="2023-05-01",
         colname="COVID_WINDOW_2020_03_11_2023_05_05",
     )
