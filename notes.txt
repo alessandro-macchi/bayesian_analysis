@@ -1,0 +1,15 @@
+
+ARIMA VIENE COMPARATO CON AR (ESISTE UNA LITERATURE CHE LO CONSENTE)
+
+Per l'intero preprocessing, fare riferimento al lavoro di TS&F
+
+Confronto ARIMA-AR completato
+
+Per il BVAR il Minnesota Prior (Informato) non aggiunge nulla all'analisi (migliora dell'1% per rmse ma peggiora per mae)
+
+Valutare di aggiungere le dummy.
+
+
+Valutare se passare a AR, VAR, VARX come modelli, eliminando il RF.
+
+
