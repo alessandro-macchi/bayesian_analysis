@@ -70,9 +70,9 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None,
     # =========================================================
     # 1. PANDEMICS & GLOBAL HEALTH (Windows)
     # =========================================================
-    _add_window(out, "2003-02-01", "2003-07-01", "SARS_WINDOW")
+    # _add_window(out, "2003-02-01", "2003-07-01", "SARS_WINDOW")
     _add_window(out, "2020-02-01", "2023-05-01", "COVID_WINDOW")
-    pandemic_cols = ["SARS_WINDOW", "COVID_WINDOW"]
+    pandemic_cols = ["COVID_WINDOW"]
 
     # =========================================================
     # 2. GEOPOLITICAL & CONFLICT (Pulses for onset shocks)
@@ -129,6 +129,8 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None,
     return out
 
 """
+OLD VERSION
+
 def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.DataFrame:
     out = _ensure_dt_index(df, date_col)
 
