@@ -46,16 +46,90 @@ def _add_window(out: pd.DataFrame, start: DateLike, end: DateLike, colname: str)
 # -----------------------------
 # Main API (specific events)
 # -----------------------------
+import pandas as pd
+from typing import Optional
+
+
+def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None,
+                                  keep_granular: bool = False) -> pd.DataFrame:
+    """
+    Adds specific event controls and then aggregates them into broader macro-categories:
+      1. Pandemics (SARS, COVID-19)
+      2. Geopolitical & Conflict Shocks (9/11, Iraq War, Arab Spring, Russia-Ukraine, Israel-Hamas)
+      3. Financial Crises (Dot-com, GFC, Eurozone Debt Crisis)
+      4. Climate & Energy Disasters (Katrina, Fukushima, Deepwater Horizon, Nord Stream)
+      5. Climate Policy Milestones (COP21, COP28)
+
+    Args:
+        df: Input DataFrame.
+        date_col: Name of the date column if not already the index.
+        keep_granular: If True, keeps all individual event columns. If False, keeps ONLY the aggregated categories.
+    """
+    out = _ensure_dt_index(df, date_col)
+
+    # =========================================================
+    # 1. PANDEMICS & GLOBAL HEALTH (Windows)
+    # =========================================================
+    _add_window(out, "2003-02-01", "2003-07-01", "SARS_WINDOW")
+    _add_window(out, "2020-02-01", "2023-05-01", "COVID_WINDOW")
+    pandemic_cols = ["SARS_WINDOW", "COVID_WINDOW"]
+
+    # =========================================================
+    # 2. GEOPOLITICAL & CONFLICT (Pulses for onset shocks)
+    # =========================================================
+    _add_pulse(out, "2001-09-01", "SEP11_PULSE")
+    _add_pulse(out, "2003-03-01", "IRAQ_WAR_PULSE")
+    _add_pulse(out, "2011-02-01", "ARAB_SPRING_LIBYA_PULSE")  # Major oil disruption
+    _add_pulse(out, "2022-03-01", "RU_UA_WAR_PULSE")
+    _add_pulse(out, "2023-10-01", "ISRAEL_HAMAS_PULSE")  # Red sea/Middle east shock
+    conflict_cols = ["SEP11_PULSE", "IRAQ_WAR_PULSE", "ARAB_SPRING_LIBYA_PULSE",
+                     "RU_UA_WAR_PULSE", "ISRAEL_HAMAS_PULSE"]
+
+    # =========================================================
+    # 3. FINANCIAL CRISES (Windows)
+    # =========================================================
+    _add_window(out, "2001-03-01", "2001-11-01", "DOTCOM_BUST_WINDOW")
+    _add_window(out, "2007-12-01", "2009-07-01", "GFC_WINDOW")
+    _add_window(out, "2010-05-01", "2012-07-01", "EURO_DEBT_CRISIS_WINDOW")
+    financial_cols = ["DOTCOM_BUST_WINDOW", "GFC_WINDOW", "EURO_DEBT_CRISIS_WINDOW"]
+
+    # =========================================================
+    # 4. ENERGY DISASTERS & INFRASTRUCTURE SHOCKS (Pulses)
+    # =========================================================
+    _add_pulse(out, "2005-08-01", "HURRICANE_KATRINA_PULSE")  # Gulf oil shock
+    _add_pulse(out, "2010-04-01", "DEEPWATER_HORIZON_PULSE")
+    _add_pulse(out, "2011-03-01", "FUKUSHIMA_PULSE")
+    _add_pulse(out, "2022-09-01", "NORD_STREAM_SABOTAGE_PULSE")
+    disaster_cols = ["HURRICANE_KATRINA_PULSE", "DEEPWATER_HORIZON_PULSE",
+                     "FUKUSHIMA_PULSE", "NORD_STREAM_SABOTAGE_PULSE"]
+
+    # =========================================================
+    # 5. CLIMATE POLICY MILESTONES (Pulses)
+    # =========================================================
+    _add_pulse(out, "2015-12-01", "PARIS_COP21_PULSE")
+    _add_pulse(out, "2023-12-01", "COP28_FOSSIL_TRANSITION_PULSE")
+    climate_policy_cols = ["PARIS_COP21_PULSE", "COP28_FOSSIL_TRANSITION_PULSE"]
+
+    # =========================================================
+    # AGGREGATION: Create the General Dummies
+    # =========================================================
+    # Using .max(axis=1) ensures that if any underlying event is 1, the aggregate is 1.
+    out["MACRO_PANDEMIC_WINDOW"] = out[pandemic_cols].max(axis=1)
+    out["MACRO_CONFLICT_PULSE"] = out[conflict_cols].max(axis=1)
+    out["MACRO_FINANCIAL_WINDOW"] = out[financial_cols].max(axis=1)
+    out["MACRO_ENERGY_DISASTER_PULSE"] = out[disaster_cols].max(axis=1)
+    out["MACRO_CLIMATE_POLICY_PULSE"] = out[climate_policy_cols].max(axis=1)
+
+    # Clean up: Remove granular columns if requested
+    if not keep_granular:
+        all_granular = (pandemic_cols + conflict_cols + financial_cols +
+                        disaster_cols + climate_policy_cols)
+        out = out.drop(columns=all_granular)
+
+    return out
+
+"""
 def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.DataFrame:
-    """
-    Add event controls with the following mapping:
-      - COVID-19:           WINDOW (2020-02-01 to 2023-05-01)
-      - Russia-Ukraine War: PULSE  (2022-03-01)
-      - Fukushima Disaster:  PULSE  (2011-03-01)
-      - Global Financial Crisis: WINDOW (2007-12-01 to 2009-07-01)
-      - Paris Climate Conference (COP21 adoption): PULSE (2015-12-01)
-      - September 11th Terrorist Attack: PULSE (2001-09-11)
-    """
     out = _ensure_dt_index(df, date_col)
 
     # COVID-19 window (WHO PHEIC 2020-02-01 to 2023-05-01)
@@ -87,3 +161,4 @@ def add_event_controls(df: pd.DataFrame, date_col: Optional[str] = None) -> pd.D
     _add_pulse(out, "2001-09-01", "SEP11_PULSE_2001_09_11")
 
     return out
+"""
