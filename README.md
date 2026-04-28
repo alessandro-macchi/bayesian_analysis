@@ -8,7 +8,7 @@ This project evaluates whether a Bayesian inferential framework delivers better 
 The project explores both univariate and multivariate specifications to determine under what conditions the Bayesian approach provides a tangible advantage over traditional frequentist estimators.
 
 ## 📂 Project Structure
-**`Bayesian_Analysis.pdf`**: The final comprehensive academic report containing:
+The final comprehensive academic report containing:
   1. Introduction
   2. Data Exploration and Preprocessing
   3. Models Implementation
@@ -18,7 +18,7 @@ The project explores both univariate and multivariate specifications to determin
 
 **Diebold-Mariano Results Summary:**
 * **Absolute Loss (MAE):** The BVAR(2) model is significantly more accurate than the frequentist VAR(2) at the 10% significance level (DM statistic: `1.7960`, p-value: `0.0725`). This suggests that the Bayesian framework's primary gain is concentrated in reducing moderate-sized errors.
-* **Squared Loss (MSE):** No significant predictive difference was detected between the two models (DM statistic: `0.5442`, p-value: `0.5863`), meaning both models are similarly affected by large, extreme outliers.
+* **Squared Loss (RMSE):** No significant predictive difference was detected between the two models (DM statistic: `0.5442`, p-value: `0.5863`), meaning both models are similarly affected by large, extreme outliers.
 
 **Conclusion:**
 The Bayesian approach does not dominate by construction. Its advantage materializes when the model is more complex. In the sparse univariate case, frequentist and Bayesian estimators converge to the same answer. Future extensions could explore introducing informed priors in place of a diffuse specification or implementing a time-varying parameter VAR to capture evolving cross-variable relationships.
